@@ -1,0 +1,73 @@
+version: '3.7'
+services:
+  postgres:
+    image: debezium/postgres:15
+    container_name: postgres
+    hostname: postgres
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+
+# Zookeeper, single node
+  zookeeper:
+    restart: no
+    image: confluentinc/cp-zookeeper:7.6.0
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+      - ZOOKEEPER_CLIENT_PORT= 2181
+
+  kafka:
+    image: confluentinc/cp-enterprise-kafka:7.6.0
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9991
+    ports:
+      - 9092:9092
+
+#kafdrop for topic/msg visualization
+  kaf-drop:
+    restart: always
+    image: obsidiandynamics/kafdrop:4.0.1
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+    depends_on:
+      - kafka
+
+  # debezium connector
+  kconnect:
+    image: debezium/connect:2.6
+    ports:
+      - 8083:8083
+    environment:
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      BOOTSTRAP_SERVERS: kafka:9092
+    links:
+      - zookeeper
+      - postgres
+    depends_on:
+      - kafka
+      - zookeeper
+      - postgres
+
+  debezium-ui:
+      image: debezium/debezium-ui:2.4
+      platform: linux/amd64
+      environment:
+        - KAFKA_CONNECT_URIS=http://kconnect:8083  # Pointing to Kafka Connect service
+      ports:
+        - 9091:8080
+      depends_on:
+        - kconnect
